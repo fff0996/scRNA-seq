@@ -2,34 +2,43 @@ library(Seurat)
 library(future)
 library(SeuratDisk)
 
-# 💥 병렬 처리 글로벌 사이즈 제한 풀기 (10GB)
-options(future.globals.maxSize = 10000 * 1024^2)
+
+w0_all <- Read10X(w0_dir)
+c3d1_all <- Read10X(c3d1_dir)
+pd_all <- Read10X(pd_dir)
+w0 <- CreateSeuratObject(w0_all, project = "W0")
+c3d1 <- CreateSeuratObject(c3d1_all, project = "C3D1")
+pd <- CreateSeuratObject(pd_all, project = "PD")
+
+
+sc_all <- merge(
+  w0,
+  y = list(c3d1, pd),
+  add.cell.ids = c("W0", "C3D1", "PD"),  # prefix 자동 붙음
+  project = "ALL"
+)
 
 # (필요시) 병렬 처리 코어 수 조정
 plan("multisession", workers = 4)
+options(future.globals.maxSize = 10000 * 1024^2)
 
-# 📌 1. Reference 불러오기
+# 1. Reference 불러오기
 reference <- readRDS("pbmc_multimodal_2023.rds")
+sc_all_sc <- SCTransform(sc_all, verbose = FALSE)
 
-# 📌 2. Query 데이터 준비 (예: sc_all or all_tcr 등)
-# --> 여기선 all_tcr이 merge된 full object라고 가정
-
-# 🔁 3. SCTransform (normalized counts 기반으로 anchor 찾기용)
-all_tcr <- SCTransform(all_tcr, verbose = FALSE)
-
-# 📌 4. Anchor 찾기
+# 4. Anchor 찾기
 anchors <- FindTransferAnchors(
   reference = reference,
-  query = all_tcr,
+  query = sc_all_sc,
   normalization.method = "SCT",            # SCTransform 기반 anchor
   reference.reduction = "spca",            # reference에서 제공하는 PCA 기반
   dims = 1:50
 )
 
-# 📌 5. MapQuery()로 label transfer 수행
-all_tcr <- MapQuery(
+# 5. MapQuery()로 label transfer 수행
+sc_all_sc <- MapQuery(
   anchorset = anchors,
-  query = all_tcr,
+  query = sc_all_sc,
   reference = reference,
   refdata = list(
     celltype.l1 = "celltype.l1",           # coarse cell type
@@ -39,5 +48,11 @@ all_tcr <- MapQuery(
   reduction.model = "wnn.umap"             # reference UMAP 좌표에 맞춰 시각화
 )
 
-# ✅ 6. Plot UMAP
-DimPlot(all_tcr, reduction = "ref.umap", group.by = "predicted.celltype.l2", label = TRUE, repel = TRUE)
+# 6. Plot UMAP
+DimPlot(sc_all_sc, reduction = "ref.umap", group.by = "predicted.celltype.l2", label = TRUE, repel = TRUE)
+
+# 7. Gene expression dot plot
+DotPlot(cd8_tem,
+        features = c("GIMAP7", "CXCR3", "TNFRSF1A"),
+        group.by = "orig.ident") +
+  RotatedAxis()
