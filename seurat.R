@@ -47,27 +47,27 @@ sc_all_f1_sc <- RunPCA(sc_all_f1_sc)
 sc_all_f1_sc <- RunUMAP(sc_all_f1_sc, dims = 1:20)
 
 
-VlnPlot(sc_all_f1_sc, features = c("nFeature_RNA", "percent.mt"))
-thresh <- quantile(sc_all_f1_sc$nCount_RNA, 0.99)
+#VlnPlot(sc_all_f1_sc, features = c("nFeature_RNA", "percent.mt"))
 
-# 필터링
+# 이상치 필터링
+thresh <- quantile(sc_all_f1_sc$nCount_RNA, 0.99)
 sc_all_f1_sc <- subset(sc_all_f1_sc, subset = nCount_RNA < thresh)
-sc_all_f1_sc <- PrepSCTFindMarkers(sc_all_f1_sc)
+#sc_all_f1_sc <- PrepSCTFindMarkers(sc_all_f1_sc)
 
 # 4. 이제부터는 경고 없이 VlnPlot, FeaturePlot 가능
-VlnPlot(sc_all, features = c("nFeature_RNA", "percent.mt"))
+#VlnPlot(sc_all, features = c("nFeature_RNA", "percent.mt"))
 # ---------------------------------------------------------------
 # 3. QC 시각화 (violin plot)
-VlnPlot(seurat_obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.ribo"),
+#VlnPlot(seurat_obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.ribo"),
         pt.size = 0.1, ncol = 4)
 
 
 library(DoubletFinder)
- options(future.globals.maxSize = 2 * 1024^3)
+options(future.globals.maxSize = 2 * 1024^3)
 
 
 
-
+# W0
 sc_w0 <- subset(sc_all_f1_sc, subset = orig.ident == "W0")
 DefaultAssay(sc_w0) <- "SCT"
 
@@ -92,25 +92,90 @@ sc_w0 <- doubletFinder(
   sc_w0,
   PCs = 1:20,
   pN = 0.25,
-  pK = 0.06,  # 너가 고른 값
+  pK = 0.05,  # 너가 고른 값
+  nExp = nExp_poi.adj,
+  reuse.pANN = NULL,
+  sct = TRUE
+)
+
+# C3D1
+sc_c3d1 <- subset(sc_all_f1_sc, subset = orig.ident == "C3D1")
+DefaultAssay(sc_c3d1) <- "SCT"
+
+# sweep + find.pK
+sweep.res.list <- paramSweep(sc_c3d1, PCs = 1:20, sct = TRUE)
+sweep.stats <- summarizeSweep(sweep.res.list, GT = FALSE)
+bcmvn <- find.pK(sweep.stats)
+optimal.pK <- bcmvn[which.max(bcmvn$BCmetric), "pK"]
+optimal.pK
+
+
+sc_c3d1 <- FindNeighbors(sc_c3d1, dims = 1:20)
+sc_c3d1 <- FindClusters(sc_c3d1, resolution = 0.5) 
+# 적당한 pK 고른 후
+annotations <- sc_c3d1$seurat_clusters  # cluster가 있어야 함. 없으면 clustering 돌려야 함
+homotypic.prop <- modelHomotypic(annotations)
+nExp_poi <- round(0.075 * nrow(sc_c3d1@meta.data))
+nExp_poi.adj <- round(nExp_poi * (1 - homotypic.prop))
+
+# doubletFinder 실행
+sc_c3d1 <- doubletFinder(
+  sc_c3d1,
+  PCs = 1:20,
+  pN = 0.25,
+  pK = 0.05,  # 너가 고른 값
   nExp = nExp_poi.adj,
   reuse.pANN = NULL,
   sct = TRUE
 )
 
 
+# PD
+sc_pd <- subset(sc_all_f1_sc, subset = orig.ident == "PD")
+DefaultAssay(sc_pd) <- "SCT"
+
+# sweep + find.pK
+sweep.res.list <- paramSweep(sc_pd, PCs = 1:20, sct = TRUE)
+sweep.stats <- summarizeSweep(sweep.res.list, GT = FALSE)
+bcmvn <- find.pK(sweep.stats)
+optimal.pK <- bcmvn[which.max(bcmvn$BCmetric), "pK"]
+optimal.pK
+
+
+sc_pd <- FindNeighbors(sc_pd, dims = 1:20)
+sc_pd <- FindClusters(sc_pd, resolution = 0.5) 
+# 적당한 pK 고른 후
+annotations <- sc_pd$seurat_clusters  # cluster가 있어야 함. 없으면 clustering 돌려야 함
+homotypic.prop <- modelHomotypic(annotations)
+nExp_poi <- round(0.075 * nrow(sc_pd@meta.data))
+nExp_poi.adj <- round(nExp_poi * (1 - homotypic.prop))
+
+# doubletFinder 실행
+sc_pd <- doubletFinder(
+  sc_pd,
+  PCs = 1:20,
+  pN = 0.25,
+  pK = 0.09,  # 너가 고른 값
+  nExp = nExp_poi.adj,
+  reuse.pANN = NULL,
+  sct = TRUE
+)
+
+
+
+
 # W0
-Idents(sc_w0) <- sc_w0[["DF.classifications_0.25_0.08_686"]][,1]
+Idents(sc_w0) <- sc_w0[["DF.classifications_0.25_0.05_686"]][,1]
 doublet_w0 <- WhichCells(sc_w0, idents = "Doublet")
 sc_w0_clean <- subset(sc_w0, cells = setdiff(Cells(sc_w0), doublet_w0))
 
 # C3D1
-Idents(sc_c3d1) <- sc_c3d1[["DF.classifications_0.25_0.06_813"]][,1]
+Idents(sc_c3d1) <- sc_c3d1[["DF.classifications_0.25_0.05_813"]][,1]
 doublet_c3d1 <- WhichCells(sc_c3d1, idents = "Doublet")
 sc_c3d1_clean <- subset(sc_c3d1, cells = setdiff(Cells(sc_c3d1), doublet_c3d1))
 
 # PD (예: pK=0.05, nExp=761인 경우라면)
-Idents(sc_pd) <- sc_pd[["DF.classifications_0.25_0.05_761"]][,1]
+Idents(sc_pd) <- sc_pd[["DF.classifications_0.25_0.09_595"]][,1]
 doublet_pd <- WhichCells(sc_pd, idents = "Doublet")
 sc_pd_clean <- subset(sc_pd, cells = setdiff(Cells(sc_pd), doublet_pd))
 
