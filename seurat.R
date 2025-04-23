@@ -231,3 +231,38 @@ DotPlot(cd8_tem,
         features = c("GIMAP7", "CXCR3", "TNFRSF1A"),
         group.by = "orig.ident") +
   RotatedAxis()
+
+
+##TCR clonotype분석
+# 1. TCR annotation 불러오기
+w0_tcr <- read.csv("W0/vdj_t/filtered_contig_annotations.csv")
+c3d1_tcr <- read.csv("C3D1/vdj_t/filtered_contig_annotations.csv")
+pd_tcr <- read.csv("PD/vdj_t/filtered_contig_annotations.csv")
+
+# 2. TCR-positive barcode 추출
+w0_barcodes <- unique(w0_tcr$barcode)
+c3d1_barcodes <- unique(c3d1_tcr$barcode)
+pd_barcodes <- unique(pd_tcr$barcode)
+
+tmp <- c3d1_tcr[,c(1,5:10,23,24,27)]
+tmp$barcode <- paste("PD",tmp$barcode,sep="_")
+pd_tcr_TRA <- tmp[tmp$chain== "TRA",]
+pd_tcr_TRB <- tmp[tmp$chain== "TRB",]
+tra_unique <- pd_tcr_TRA %>%
+  group_by(barcode) %>%
+  filter(n() == 1) %>%
+  ungroup()
+trb_unique <- pd_tcr_TRB %>%
+  group_by(barcode) %>%
+  filter(n() == 1) %>%
+  ungroup()
+
+joined_tcr_strict <- inner_join(tra_unique, trb_unique, by = "barcode")
+
+pd_tcr_m <- as.data.frame(joined_tcr_strict)
+pd_tcr_m$cdr3 <- paste(pd_tcr_m$cdr3.x,pd_tcr_m$cdr3.y,sep="_")
+pd_tcr_m$cdr3_nt <- paste(pd_tcr_m$cdr3_nt.x,pd_tcr_m$cdr3_nt.y,sep="_")
+pd_tcr_m$v_gene <- paste(pd_tcr_m$v_gene.x,pd_tcr_m$v_gene.y,sep="_")
+pd_tcr_m$j_gene <- paste(pd_tcr_m$j_gene.x,pd_tcr_m$j_gene.y,sep="_")
+pd_tcr_m$clone <- paste(pd_tcr_m$cdr3,pd_tcr_m$cdr3_nt,pd_tcr_m$v_gene,pd_tcr_m$j_gene,sep="__")
+head(pd_tcr_m)
