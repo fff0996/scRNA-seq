@@ -43,8 +43,23 @@ features <- SelectIntegrationFeatures(object.list = seurat_list, nfeatures = 300
 library(future)
 plan("sequential")  # 병렬 처리 대신 순차 실행
 seurat_list <- PrepSCTIntegration(object.list = seurat_list, anchor.features = features)
-#병렬처리 복그
-plan("multisession", workers = 4)  # 예: 4-core 사용
-options(future.globals.maxSize = 100 * 1024^3)
+#병렬처리 (이렇게 하면 터짐...)
+#plan("multisession", workers = 4)  # 예: 4-core 사용
+#options(future.globals.maxSize = 100 * 1024^3)
 anchors <- FindIntegrationAnchors(object.list = seurat_list, normalization.method = "SCT", anchor.features = features)
                       
+
+combined <- IntegrateData(anchorset = anchors, normalization.method = "SCT")
+
+# 8. Set default assay to integrated
+DefaultAssay(combined) <- "integrated"
+
+# 9. Run PCA
+combined <- RunPCA(combined)
+
+# 10. Run UMAP
+combined <- RunUMAP(combined, dims = 1:30)
+combined <- FindNeighbors(combined, dims = 1:30)
+combined <- FindClusters(combined, resolution = 0.5)
+
+DimPlot(combined, group.by = "seurat_clusters", label = TRUE)
