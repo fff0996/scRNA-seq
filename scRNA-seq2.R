@@ -62,4 +62,56 @@ combined <- RunUMAP(combined, dims = 1:30)
 combined <- FindNeighbors(combined, dims = 1:30)
 combined <- FindClusters(combined, resolution = 0.5)
 
+samples <- c("YON21_W0", "YON21_C3D1", "YON21_PD", "YON95_W0", "YON95_C3D1", "YON95_PD")
+
+# 1. subset each sample from integrated object
+sample_list <- lapply(samples, function(s) subset(combined, subset = orig.ident == s))
+names(sample_list) <- samples
+
+# 결과 저장할 리스트
+clean_list <- list()
+
+# 2. 각 샘플에 대해 반복 실행
+for (sample_name in samples) {
+  cat("Processing:", sample_name, "\n")
+  
+  sample <- sample_list[[sample_name]]
+  DefaultAssay(sample) <- "SCT"
+  
+  # [1] Clustering 먼저
+  sample <- FindNeighbors(sample, dims = 1:20, graph.name = "SCT_snn", verbose = FALSE)
+sample <- FindClusters(sample, graph.name = "SCT_snn", resolution = 0.5, verbose = FALSE)
+  
+  # [2] Sweep to find optimal pK
+  sweep.res.list <- paramSweep(sample, PCs = 1:20, sct = TRUE)
+  sweep.stats <- summarizeSweep(sweep.res.list, GT = FALSE)
+  bcmvn <- find.pK(sweep.stats)
+  optimal.pK <- as.numeric(as.character(bcmvn[which.max(bcmvn$BCmetric), "pK"]))
+  cat("Optimal pK for", sample_name, ":", optimal.pK, "\n")
+  
+  # [3] Estimate expected doublets
+  annotations <- sample$seurat_clusters
+  homotypic.prop <- modelHomotypic(annotations)
+  nExp_poi <- round(0.075 * nrow(sample@meta.data))
+  nExp_poi.adj <- round(nExp_poi * (1 - homotypic.prop))
+  
+  # [4] Run DoubletFinder
+  sample <- doubletFinder(
+    sample,
+    PCs = 1:20,
+    pN = 0.25,
+    pK = optimal.pK,
+    nExp = nExp_poi.adj,
+    reuse.pANN = FALSE,
+    sct = TRUE
+  )
+
+  df_col <- grep("DF.classifications", colnames(sample@meta.data), value = TRUE)
+  Idents(sample) <- sample[[df_col]][,1]
+  doublet_cells <- WhichCells(sample, idents = "Doublet")
+  sample_clean <- subset(sample, cells = setdiff(Cells(sample), doublet_cells))
+  
+  clean_list[[sample_name]] <- sample_clean
+}
+
 DimPlot(combined, group.by = "seurat_clusters", label = TRUE)
