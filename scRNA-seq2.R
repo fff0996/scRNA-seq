@@ -106,8 +106,10 @@ sample <- FindClusters(sample, graph.name = "SCT_snn", resolution = 0.5, verbose
     sct = TRUE
   )
 
-  df_col <- grep("DF.classifications", colnames(sample@meta.data), value = TRUE)
-  Idents(sample) <- sample[[df_col]][,1]
+ df_col <- grep("DF.classifications", colnames(sample@meta.data), value = TRUE)
+  df_col <- tail(df_col, 1)  # 가장 마지막 것만 사용
+
+  Idents(sample) <- sample[[df_col]][, 1]
   doublet_cells <- WhichCells(sample, idents = "Doublet")
   sample_clean <- subset(sample, cells = setdiff(Cells(sample), doublet_cells))
   
