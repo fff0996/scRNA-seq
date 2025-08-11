@@ -116,4 +116,84 @@ sample <- FindClusters(sample, graph.name = "SCT_snn", resolution = 0.5, verbose
   clean_list[[sample_name]] <- sample_clean
 }
 
-DimPlot(combined, group.by = "seurat_clusters", label = TRUE)
+clean_list[["YON21_W0"]]
+sample_full <- sample_list[["YON21_W0"]]   
+merged_obj <- merge(clean_list[[1]], y = clean_list[2:6], 
+                    add.cell.ids = names(clean_list), 
+                    project = "merged_clean")
+
+merged_clean <- merge(clean_list[[1]], y = clean_list[2:6], add.cell.ids = names(clean_list), project = "merged")
+
+DefaultAssay(merged_clean) <- "SCT"
+merged_clean <- RunPCA(merged_clean, verbose = FALSE)
+merged_clean <- FindNeighbors(merged_clean, dims = 1:20, verbose = FALSE)
+merged_clean <- FindClusters(merged_clean, resolution = 0.5, verbose = FALSE)
+merged_clean <- RunUMAP(merged_clean, dims = 1:20, verbose = FALSE)
+merged_clean <- RunPCA(merged_clean, verbose = FALSE)
+merged_clean <- FindVariableFeatures(merged_clean)
+merged_clean <- RunPCA(merged_clean, verbose = FALSE)
+merged_clean <- FindNeighbors(merged_clean, dims = 1:20, verbose = FALSE)
+merged_clean <- FindClusters(merged_clean, resolution = 0.5, verbose = FALSE)
+merged_clean <- RunUMAP(merged_clean, dims = 1:20, verbose = FALSE)
+
+Idents(merged_clean) <- "seurat_clusters"
+DimPlot(merged_clean, reduction = "umap", label = TRUE)
+
+                      
+
+
+                      
+# 1. Reference 불러오기
+reference <- readRDS("pbmc_multimodal_2023.rds")    
+
+map_one <- function(qobj, ref){
+DefaultAssay(qobj) <- "SCT"
+qobj <- tryCatch(JoinLayers(qobj), error = function(e) qobj)  # 안전용
+
+ # 1) 각 객체의 SCT scale.data에 실제로 존재하는 feature 집합
+rf <- rownames(ref[["SCT"]]@scale.data)
+qf <- rownames(qobj[["SCT"]]@scale.data)
+common <- intersect(rf, qf)
+
+# 2) 후보 선정: SelectIntegrationFeatures → 실제 공통 feature로 필터
+feats0 <- SelectIntegrationFeatures(object.list = list(ref, qobj),
+                                   nfeatures = min(3000, length(common)))
+feats  <- intersect(feats0, common)
+
+#(안전장치) 만약 개수가 너무 적으면 VariableFeatures 교차로 보충
+if (length(feats) < 2000) {
+vf <- intersect(VariableFeatures(ref), VariableFeatures(qobj))
+feats <- unique(c(feats, intersect(vf, common)))
+}
+# (더 안전장치) 그래도 부족하면 그냥 common에서 상위 n개 사용
+if (length(feats) < 2000) {
+feats <- common[seq_len(min(2000, length(common)))]
+}
+# 3) PrepSCTIntegration (둘 다 같은 anchor.features로)
+ref_prep <- PrepSCTIntegration(list(ref), anchor.features = feats)[[1]]
+q_prep   <- PrepSCTIntegration(list(qobj), anchor.features = feats)[[1]]
+ # 4) Anchors & Map
+anc <- FindTransferAnchors(
+ reference = ref_prep,
+query     = q_prep,
+normalization.method = "SCT",
+reference.reduction  = "pca",   # 필요 시 "spca"
+dims = 1:50
+)
+q_mapped <- MapQuery(
+anchorset = anc,
+query = q_prep,
+reference = ref_prep,
+refdata = list(
+celltype.l1 = "celltype.l1",
+celltype.l2 = "celltype.l2"
+),
+reference.reduction = "pca",
+reduction.model = "wnn.umap"
+)
+return(q_mapped)
+}
+
+                 
+objs <- SplitObject(merged, split.by = "orig.ident")
+mapped_list <- lapply(objs, map_one, ref = reference)
