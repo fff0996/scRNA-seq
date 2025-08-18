@@ -195,5 +195,5 @@ return(q_mapped)
 }
 
                  
-objs <- SplitObject(merged, split.by = "orig.ident")
+objs <- SplitObject(merged_clean, split.by = "orig.ident")
 mapped_list <- lapply(objs, map_one, ref = reference)
