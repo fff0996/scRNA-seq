@@ -197,3 +197,72 @@ return(q_mapped)
                  
 objs <- SplitObject(merged_clean, split.by = "orig.ident")
 mapped_list <- lapply(objs, map_one, ref = reference)
+
+
+
+                 library(Seurat)
+library(dplyr)
+library(ggplot2)
+
+## 0) 안전 세팅 (v5 레이어 정리 + RNA 기본)
+DefaultAssay(merged) <- "RNA"
+merged <- tryCatch(JoinLayers(merged), error = function(e) merged)
+
+## 1) CD8 TEM만 추출
+Idents(merged) <- "predicted.celltype.l2"
+cd8tem <- subset(merged, idents = "CD8 TEM")
+DefaultAssay(cd8tem) <- "RNA"
+cd8tem <- tryCatch(JoinLayers(cd8tem), error = function(e) cd8tem)
+
+## 2) 재클러스터링
+cd8tem <- NormalizeData(cd8tem, verbose = FALSE)
+cd8tem <- FindVariableFeatures(cd8tem, nfeatures = 3000, verbose = FALSE)
+cd8tem <- ScaleData(cd8tem, verbose = FALSE)
+cd8tem <- RunPCA(cd8tem, npcs = 50, verbose = FALSE)
+cd8tem <- FindNeighbors(cd8tem, dims = 1:30)
+cd8tem <- FindClusters(cd8tem, resolution = 0.3)  # 0.2~0.6 조절 가능
+cd8tem <- RunUMAP(cd8tem, dims = 1:30)
+
+## 3) 시그니처 패널 정의
+genes_exh <- c("PDCD1","CTLA4","LAG3","TIGIT","HAVCR2","TOX","ENTPD1","CXCL13",
+               "EOMES","BATF","IRF4","NFATC1","NFATC2","PRDM1","CD160","CD101","CD244","CD38","CD69")
+genes_cyto <- c("GZMA","GZMB","GZMH","GZMK","GZMM","GNLY","PRF1","FASLG","IFNG","TNF","IL2","IL2RA")
+genes_naive<- c("SELL","CCR7","TCF7","LEF1","IL7R","CD27","CD28","KLF2","BACH2","S1PR1","FOXP1")
+keep <- function(gs, obj) intersect(gs, rownames(obj))
+
+## 4) 모듈 점수 계산
+cd8tem <- AddModuleScore(cd8tem, list(keep(genes_exh, cd8tem)),  name = "exh_")   # exh_1
+cd8tem <- AddModuleScore(cd8tem, list(keep(genes_cyto, cd8tem)), name = "cyto_")  # cyto_1
+cd8tem <- AddModuleScore(cd8tem, list(keep(genes_naive,cd8tem)), name = "naive_") # naive_1
+
+## 5) (권장) 샘플/시점 내 표준화 후 상태 라벨링
+# orig.ident이 있으면 그 기준으로 z-score; 없으면 전체 z-score
+z <- function(x) as.numeric(scale(x))
+if (!is.null(cd8tem$orig.ident)) {
+  cd8tem$exh_z   <- ave(cd8tem$exh_1,   cd8tem$orig.ident, FUN = z)
+  cd8tem$cyto_z  <- ave(cd8tem$cyto_1,  cd8tem$orig.ident, FUN = z)
+  cd8tem$naive_z <- ave(cd8tem$naive_1, cd8tem$orig.ident, FUN = z)
+} else {
+  cd8tem$exh_z   <- z(cd8tem$exh_1)
+  cd8tem$cyto_z  <- z(cd8tem$cyto_1)
+  cd8tem$naive_z <- z(cd8tem$naive_1)
+}
+
+thr <- 0.10  # 경계 여유 (데이터 보고 0.05~0.2 튜닝)
+lab <- rep("CD8_undetermined", ncol(cd8tem))
+lab[(cd8tem$cyto_z > cd8tem$exh_z) & (cd8tem$cyto_z > cd8tem$naive_z + thr)] <- "CD8_cytotoxic"
+lab[(cd8tem$exh_z  > cd8tem$cyto_z) & (cd8tem$exh_z  > cd8tem$naive_z + thr)] <- "CD8_exhausted"
+lab[(cd8tem$naive_z > pmax(cd8tem$cyto_z, cd8tem$exh_z) + thr)]               <- "CD8_naive_like"
+cd8tem$CD8_state <- lab
+
+## 6) 플롯
+p1 <- DimPlot(cd8tem, group.by = "seurat_clusters", label = TRUE, repel = TRUE) +
+  ggtitle("CD8 TEM – reclustering")
+p2 <- DimPlot(cd8tem, group.by = "CD8_state", label = TRUE, repel = TRUE) +
+  ggtitle("CD8 TEM – Naive / Cytotoxic / Exhausted / Undetermined")
+
+print(p1); print(p2)
+
+# 마커 검증 DotPlot
+markers <- c("CCR7","TCF7","IL7R","GZMB","PRF1","GNLY","PDCD1","LAG3","TOX")
+print(DotPlot(cd8tem, features = markers, group.by = "CD8_state") + RotatedAxis())
