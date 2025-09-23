@@ -270,3 +270,25 @@ print(p1); print(p2)
 # 마커 검증 DotPlot
 markers <- c("CCR7","TCF7","IL7R","GZMB","PRF1","GNLY","PDCD1","LAG3","TOX")
 print(DotPlot(cd8tem, features = markers, group.by = "CD8_state") + RotatedAxis())
+
+
+
+
+
+
+
+#KNN 이웃 뽑기
+cell_id <- "YON21_C3D1_AAACCATTCCCGACTC-1_1"
+k <- 30
+
+## 0) 모양 확인
+stopifnot(inherits(obj,"Seurat"), cell_id %in% colnames(obj))
+redn <- intersect(c("pca","umap"), names(obj@reductions)); stopifnot(length(redn)>=1)
+
+## 1) 좌표 가져와서 이웃 k개 계산(자체 kNN)
+emb <- Embeddings(obj, redn[1])
+stopifnot(cell_id %in% rownames(emb))
+X <- emb[, 1:min(20, ncol(emb)), drop=FALSE]
+x <- X[cell_id, , drop=FALSE]
+d2 <- rowSums((X - matrix(x, nrow(X), ncol(X), byrow=TRUE))^2)
+nbrs <- names(sort(d2))[2:(k+1)]  # 
