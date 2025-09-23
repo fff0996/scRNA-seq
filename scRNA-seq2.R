@@ -234,7 +234,11 @@ keep <- function(gs, obj) intersect(gs, rownames(obj))
 cd8tem <- AddModuleScore(cd8tem, list(keep(genes_exh, cd8tem)),  name = "exh_")   # exh_1
 cd8tem <- AddModuleScore(cd8tem, list(keep(genes_cyto, cd8tem)), name = "cyto_")  # cyto_1
 cd8tem <- AddModuleScore(cd8tem, list(keep(genes_naive,cd8tem)), name = "naive_") # naive_1
+#####만약 1개의 cell에서 특정유전자발현 보고 싶다면 
+####GetAssayData(obj, assay=assay_use, slot="data")["GZMB", cell_id]
 
+
+                   
 ## 5) (권장) 샘플/시점 내 표준화 후 상태 라벨링
 # orig.ident이 있으면 그 기준으로 z-score; 없으면 전체 z-score
 z <- function(x) as.numeric(scale(x))
