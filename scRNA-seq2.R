@@ -292,3 +292,52 @@ X <- emb[, 1:min(20, ncol(emb)), drop=FALSE]
 x <- X[cell_id, , drop=FALSE]
 d2 <- rowSums((X - matrix(x, nrow(X), ncol(X), byrow=TRUE))^2)
 nbrs <- names(sort(d2))[2:(k+1)]  # 
+
+
+                   library(dplyr); library(tidyr); library(forcats); library(ggplot2); library(scales)
+
+# 0) 메타 확인
+md <- obj_filt@meta.data
+stopifnot(all(c("sample") %in% names(md)))
+lab_col <- if ("new.predicted.celltype.l2" %in% names(md)) "new.predicted.celltype.l2" else "predicted.celltype.l2"
+
+# 1) "YON21_C3D1" -> patient/timepoint 파싱
+meta <- md %>%
+  transmute(sample_orig = as.character(sample),
+            celltype    = .data[[lab_col]]) %>%
+  tidyr::extract(sample_orig, into=c("patient","timepoint"),
+                 regex="^(YON[0-9]+)[_-]([A-Za-z0-9]+)$", remove=FALSE) %>% as_tibble()
+
+# 2) 레벨 고정
+patient_levels   <- c("YON21","YON95")
+timepoint_levels <- c("W0","C3D1","PD")
+meta <- meta %>%
+  mutate(patient=factor(patient, levels=patient_levels),
+         timepoint=factor(timepoint, levels=timepoint_levels)) %>%
+droplevels()
+
+# 3) 여기서 "데이터프레임"으로 카운트 만들기  (중요: 이전에 쓰던 cnt 변수 무시)
+ct_counts <- dplyr::count(meta, patient, timepoint, celltype, name="n")
+stopifnot(is.data.frame(ct_counts))
+
+# 4) 0 채우고 비율 계산
+prop_df <- ct_counts %>%
+  complete(patient=factor(patient_levels, levels=patient_levels),
+           timepoint=factor(timepoint_levels, levels=timepoint_levels),
+           celltype, fill=list(n=0)) %>%
+  group_by(patient, timepoint) %>%
+  mutate(prop = if (sum(n)>0) n/sum(n) else 0) %>%
+  ungroup()
+
+# 5) 플롯
+present_ct <- sort(unique(prop_df$celltype))
+pal <- setNames(scales::hue_pal()(length(present_ct)), present_ct)
+
+ggplot(prop_df, aes(x=timepoint, y=prop, fill=fct_expand(celltype, present_ct))) +
+  geom_col(width=0.95) +
+  facet_wrap(~ patient, nrow=1) +
+  scale_y_continuous(labels=percent_format(accuracy=1), expand=expansion(mult=c(0,0.02))) +
+  scale_fill_manual(values=pal, breaks=present_ct, name="Cell type") +
+  labs(x=NULL, y="Proportion of cells", title="Cell-type composition per timepoint (by sample)") +
+  theme_bw(base_size=12) +
+  theme(panel.grid.minor=element_blank(), strip.background=element_rect(fill="grey95", colour=NA))
