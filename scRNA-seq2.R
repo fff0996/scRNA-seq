@@ -341,3 +341,11 @@ ggplot(prop_df, aes(x=timepoint, y=prop, fill=fct_expand(celltype, present_ct)))
   labs(x=NULL, y="Proportion of cells", title="Cell-type composition per timepoint (by sample)") +
   theme_bw(base_size=12) +
   theme(panel.grid.minor=element_blank(), strip.background=element_rect(fill="grey95", colour=NA))
+
+
+DimPlot(
+  pbmc_filtered,
+  group.by = "TCR_status",
+  cols = c("grey80", "red"),
+  pt.size = 0.4
+)
